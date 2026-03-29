@@ -83,7 +83,13 @@ struct SearchView: View {
 
     private var resultsList: some View {
         Group {
-            if results.isEmpty && !query.isEmpty && !isSearching {
+            if let error = spotify.searchError, results.isEmpty && !isSearching {
+                ContentUnavailableView(
+                    "Search Failed",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(error)
+                )
+            } else if results.isEmpty && !query.isEmpty && !isSearching {
                 ContentUnavailableView(
                     "No Results",
                     systemImage: "magnifyingglass",
@@ -118,7 +124,7 @@ struct SearchView: View {
 
     private func debounceSearch() {
         searchTask?.cancel()
-        searchTask = Task {
+        searchTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 400_000_000) // 400ms debounce
             guard !Task.isCancelled, !query.isEmpty else { return }
             performSearch()
@@ -128,9 +134,10 @@ struct SearchView: View {
     private func performSearch() {
         guard !query.isEmpty else { return }
         isSearching = true
-        Task {
-            results = await spotify.search(query: query)
-            isSearching = false
+        Task { @MainActor in
+            let searchResults = await spotify.search(query: query)
+            self.results = searchResults
+            self.isSearching = false
         }
     }
 
