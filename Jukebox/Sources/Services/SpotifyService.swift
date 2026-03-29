@@ -31,6 +31,7 @@ final class SpotifyService: ObservableObject {
     @Published var currentAlbumArtURL: URL?
     @Published var playbackProgress: Double = 0
     @Published var currentTrackDuration: Int = 0
+    @Published var searchError: String?
 
     // MARK: - Private State
 
@@ -118,7 +119,11 @@ final class SpotifyService: ObservableObject {
     // MARK: - API Calls
 
     func search(query: String) async -> [SpotifyTrack] {
-        guard let token = await validToken() else { return [] }
+        searchError = nil
+        guard let token = await validToken() else {
+            searchError = "Not connected to Spotify"
+            return []
+        }
 
         var components = URLComponents(string: "\(Self.apiBase)/search")!
         components.queryItems = [
@@ -132,11 +137,21 @@ final class SpotifyService: ObservableObject {
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                if httpResponse.statusCode == 401 {
+                    await refreshAccessToken()
+                    searchError = "Session expired — please try again"
+                } else {
+                    searchError = "Spotify error (\(httpResponse.statusCode))"
+                }
+                return []
+            }
             let result = try JSONDecoder().decode(SpotifySearchResponse.self, from: data)
             return result.tracks?.items ?? []
         } catch {
             print("Search error: \(error)")
+            searchError = "Could not load results"
             return []
         }
     }
